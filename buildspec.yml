@@ -1,0 +1,35 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      java: corretto11
+    commands:
+      - curl -o kubectl https://amazon-eks.s3-us-west-2.amazonaws.com/1.21.2/2021-07-05/bin/linux/amd64/kubectl
+      - chmod +x ./kubectl
+      - mv ./kubectl /usr/local/bin/kubectl
+      - aws --version
+      - aws eks update-kubeconfig --region ap-northeast-2 --name example-cluster
+      - kubectl get po -n exapi
+  pre_build:
+    commands:
+      - echo pre_build Logging in to Amazon ECR...
+      - $(aws ecr get-login --region $AWS_DEFAULT_REGION --no-include-email)
+      - REPOSITORY_URI=${REPO_ECR}
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:=latest}
+  build:
+    commands:
+      - echo Build started on `date`
+      - gradle --version
+      - chmod +x gradlew
+      - ./gradlew :ApiFacility:build
+      - docker build -t $REPOSITORY_URI:latest ./Api
+      - docker tag $REPOSITORY_URI:latest $REPOSITORY_URI:$IMAGE_TAG
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing the Docker images...
+      - docker push -a $REPOSITORY_URI
+      #- kubectl apply -f ./AWS/example-deployment.yaml
+      - kubectl rollout restart -f ./AWS/example-deployment.yaml
